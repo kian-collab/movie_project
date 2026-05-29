@@ -1,104 +1,33 @@
-version: '3.8'
-
-secrets:
-  db_password:
-    # In production, use external: true and manage externally
-    file: ./secrets/db_password.txt
+version: '3'
 
 services:
-  # MySQL Database Service
-  mysql:
-    image: mysql:8.0
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 3
+
+  web:
+    build: .
+    container_name: flask-app
+
+    ports:
+      - "5000:5000"
+
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8
+
+    container_name: mysql-db
+
+    restart: always
+
     environment:
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
-      MYSQL_DATABASE: movies_db
-      MYSQL_USER: movie_user
-      MYSQL_PASSWORD_FILE: /run/secrets/db_password
-    secrets:
-      - db_password
-      - db_root_password
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: movie
+
     ports:
       - "3306:3306"
+
     volumes:
       - mysql-data:/var/lib/mysql
-    networks:
-      - movie-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Flask Application Service
-  flask-app:
-    image: movie-app:latest
-    build: .
-    deploy:
-      mode: replicated
-      replicas: 2  # Run 2 instances for high availability
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first  # Rolling update - start new before stopping old
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-      labels:
-        - "traefik.enable=true"
-        - "traefik.http.routers.flask.rule=Host(`movieapp.local`)"
-    environment:
-      DB_USERNAME: movie_user
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_ENDPOINT: mysql
-      DB_NAME: movies_db
-      DB_PORT: 3306
-    secrets:
-      - db_password
-    networks:
-      - movie-network
-    depends_on:
-      - mysql
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Nginx Reverse Proxy for Load Balancing
-  nginx:
-    image: nginx:alpine
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      restart_policy:
-        condition: on-failure
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - movie-network
-    depends_on:
-      - flask-app
-
-networks:
-  movie-network:
-    driver: overlay
-    attachable: true
 
 volumes:
   mysql-data:
-    driver: local
